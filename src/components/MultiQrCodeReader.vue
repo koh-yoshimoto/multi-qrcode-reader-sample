@@ -180,21 +180,17 @@ export default {
       carType.value = "";
       scanning.value = false;
       
-      stream = await navigator.mediaDevices.getUserMedia({
+      await navigator.mediaDevices.getUserMedia({
         video: {
           deviceId: selectedDeviceId.value,
           width: { ideal: 3840 }, // 理想的な幅
           height: { ideal: 2080 }, // 理想的な高さ
           facingMode: 'environment', // 背面カメラを使用（モバイル用）
+          advanced: [
+            { focusMode: "continuous" } // 自動フォーカスをリクエスト
+          ],
         },
       });
-      const track = stream.getVideoTracks()[0];
-      const capabilities = track.getCapabilities();
-      if (capabilities.focusMode && capabilities.focusMode.includes("continuous")) {
-        track.applyConstraints({
-          advanced: [{ focusMode: "continuous" }],
-        });
-      }
       startScanning();
       console.log('スキャナーをリセットしました');
     };
@@ -205,22 +201,18 @@ export default {
 
       if (selectedDeviceId.value) {
         // カメラの解像度設定
-        const stream = await navigator.mediaDevices
+        await navigator.mediaDevices
           .getUserMedia({
             video: {
               deviceId: selectedDeviceId.value,
               width: { ideal: 3840 }, // 理想的な幅
               height: { ideal: 2080 }, // 理想的な高さ
               facingMode: 'environment', // 背面カメラを使用（モバイル用）
+              advanced: [
+                { focusMode: "continuous" } // 自動フォーカスをリクエスト
+              ],
             },
           })
-        const track = stream.getVideoTracks()[0];
-        const capabilities = track.getCapabilities();
-        if (capabilities.focusMode && capabilities.focusMode.includes("continuous")) {
-          track.applyConstraints({
-            advanced: [{ focusMode: "continuous" }],
-          });
-        }
         startScanning();
       } 
     });
