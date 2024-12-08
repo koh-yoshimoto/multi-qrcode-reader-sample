@@ -1,101 +1,307 @@
 <template>
   <div>
-    <h1>分割QRコードリーダー</h1>
-    <video ref="video" autoplay muted playsinline></video>
-    <p>読み取り中: {{ currentCount }}/5</p>
-    <button @click="resetReader">リセット</button>
-    <p v-if="finalResult">結合結果: {{ finalResult }}</p>
-    <p v-if="error" class="error">{{ error }}</p>
+    <select id="devices" v-model="selectedDeviceId">
+      <option v-for="device in devices" :key="device.deviceId" :value="device.deviceId">
+        {{ device.label || `カメラデバイス ${device.deviceId}` }}
+      </option>
+    </select>
+    <button @click="resetScanner" style="margin-left: 2px;">リセット</button>
+
+    <div class="checkbox-container">
+      <div 
+				v-for="(result, index) in results" 
+        :key="index" 
+        class="square" 
+        :class="{ checked: result !== ''}" 
+        :style="index === 2 ? { marginRight: '1rem' } : {}"
+      >
+      </div>
+    </div>
+    <div class="camera-container">
+      <video ref="video" autoplay></video>
+      <canvas ref="canvas" class="overlay-canvas"></canvas>
+    </div>
+
+    <h3>読み取った値</h3>
+    <ul>
+      <li v-for="(result, index) in results" :key="index">
+        {{ result }}
+      </li>
+    </ul>
+    <h3>型式</h3>
+		<p>{{ carType }}</p>
+
+
   </div>
 </template>
 
 <script>
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue';
-import { BrowserMultiFormatReader } from '@zxing/library';
+import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+
+const isStructured = (rawBytes) => {
+  return (rawBytes[0] & 0xf0) === 0x30
+}
+const getNumber = (rawBytes) => {
+  return rawBytes[0] & 0x0f
+}
+const getTotal = (rawBytes) => {
+  return (rawBytes[1] >> 4) + 1
+}
+
+const is4thQr = (text) => {
+  return text.split("/").length == 2 && text.split("/")[0] == "2";
+};
+
+const is5thQr = (text) => {
+	//全角チェックの正規表現
+	const zenkakuNumber = /^[\uFF10-\uFF19]$/;
+	return text.split("/").length == 5 && zenkakuNumber.test(text.split("/")[0]);
+};
 
 export default {
-  name: 'SplitQrCodeReader',
+  name: 'MultiQrCodeReader',
   setup() {
+
+    const codeReader = new BrowserMultiFormatReader();
     const video = ref(null);
-    const error = ref(null);
-    const currentCount = ref(0);
-    const totalParts = 5; // QRコードの分割数
-    const parts = reactive([]); // QRコードの各部分を格納
-    const finalResult = ref(null);
-    let codeReader = null;
+    const canvas = ref(null);
+    const selectedDeviceId = ref(null);
+    const devices = ref([]);
+    const results = ref(["","","","",""]); // 読み取った結果を保存する配列
+    const scanning = ref(false);
+    const carType = ref("");
 
-    const startVideo = async () => {
+
+    // デバイスリストの取得
+    const getDevices = async () => {
+      const deviceInfos = await navigator.mediaDevices.enumerateDevices();
+      devices.value = deviceInfos.filter((device) => device.kind === 'videoinput');
+      if (devices.value.length > 0) {
+        selectedDeviceId.value = devices.value[0].deviceId; // 最初のデバイスを選択
+      }
+    };
+
+    // QRコードの読み取り開始
+    const startScanning = async () => {
+      if (!selectedDeviceId.value || scanning.value) return;
+      scanning.value = true;
+
       try {
-        codeReader = new BrowserMultiFormatReader();
-        const videoInputDevices = await codeReader.listVideoInputDevices();
-        if (videoInputDevices.length === 0) {
-          error.value = 'カメラが見つかりません';
-          return;
-        }
+        await codeReader.decodeFromVideoDevice(
+          selectedDeviceId.value,
+          video.value,
+          (result, err) => {
+            if (result) {
+              drawGuide(result); // ガイドを描画
+              const text = result.getText();
+              if (!results.value.includes(text)) {
+                const rawBytes = result.getRawBytes();
+								if (!isStructured(rawBytes)) {
+									console.log("分割QRコードではありません")
+									return;
+								}
+								const num = getNumber(rawBytes)
+								const total = getTotal(rawBytes)
 
-        const firstDeviceId = videoInputDevices[0].deviceId;
+								if (total == 3 && num == 0) {
+									results.value[0] = text;
+								} else if (total == 3 && num == 1) {
+									results.value[1] = text;
+								} else if (total == 3 && num == 2) {
+									results.value[2] = text;
+								} else if (total == 2 && num == 0 && is4thQr(text)) {
+									results.value[3] = text;
+								} else if (total == 2 && num == 1 && is5thQr(text)) {
+									results.value[4] = text;
+								} else {
+                  console.error('想定しないQRコードが検出されました');
+                  return
+                }
 
-        codeReader.decodeFromVideoDevice(firstDeviceId, video.value, (result, err) => {
-          if (result) {
-            handleResult(result.getText());
+                if (results.value[0] && results.value[1] && results.value[2] && results.value[3] && results.value[4]) {
+								  console.log('QRコード読み取り完了');
+
+								  scanning.value = false;
+
+								  const qr2 = results.value[3] + results.value[4];
+								  const qr3 = results.value[0] + results.value[1] + results.value[2];
+								  carType.value = qr3.split("/")[5];
+							  }
+              }
+            } else if (err && !(err instanceof NotFoundException)) {
+              console.error('QRコード読み取りエラー:', err.message);
+            }
           }
-          if (err) {
-            console.warn(err); // エラーは無視（読み取り中の失敗もあるため）
-          }
-        });
+        );
       } catch (err) {
-        error.value = 'カメラを初期化できませんでした: ' + err.message;
+        console.error('カメラ初期化エラー:', err);
       }
     };
 
-    const stopVideo = () => {
-      if (codeReader) {
-        codeReader.reset();
+    const drawGuide = (result) => {
+      const canvasElement = canvas.value;
+      const context = canvasElement.getContext('2d');
+      canvasElement.width = video.value.videoWidth;
+      canvasElement.height = video.value.videoHeight;
+
+      setTimeout(() => {
+        context.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      }, 1000);
+
+      console.log(result)
+      const points = result.resultPoints; // QRコードの頂点情報を取得
+
+      context.beginPath();
+      context.moveTo(points[0].x, points[0].y);
+
+			const height = (points[1].y - points[0].y) * 1.3;
+			const width = (points[2].x - points[1].x) * 1.3;
+      const pointX = points[0].x - (points[2].x - points[1].x) * 0.1
+      const pointY = points[0].y - (points[1].y - points[0].y) * 0.3
+			context.rect(pointX, pointY, width, height);
+
+      context.closePath();
+      context.lineWidth = 10;
+      context.strokeStyle = 'red'; // ガイドの色
+      context.stroke()
+    };
+
+    // リセット機能
+    const resetScanner = () => {
+      // ビデオストリームの停止
+      const stream = video.value?.srcObject;
+        if (stream) {
+          const tracks = stream.getTracks();
+          tracks.forEach(track => track.stop());
       }
+
+      // 結果のリセット
+      results.value = ["", "", "", "", ""];
+      carType.value = "";
+      scanning.value = false;
+      
+      navigator.mediaDevices.getUserMedia({
+        video: {
+          deviceId: selectedDeviceId.value,
+          width: { ideal: 1920 }, // 理想的な幅
+          height: { ideal: 1080 }, // 理想的な高さ
+          facingMode: 'environment', // 背面カメラを使用（モバイル用）
+        },
+      })
+      .then(() => {
+       startScanning();
+      })
+      .catch((err) => {
+        console.error('カメラ取得エラー:', err);
+      });
+      console.log('スキャナーをリセットしました');
     };
 
-    const handleResult = (text) => {
-      if (!parts.includes(text)) {
-        parts.push(text);
-        currentCount.value = parts.length;
+    // 初期化処理
+    onMounted(async () => {
+      await getDevices();
 
-        // 全てのQRコードが揃ったら結合
-        if (parts.length === totalParts) {
-          stopVideo();
-          finalResult.value = parts.join(''); // 全ての部分を結合
-        }
+      if (selectedDeviceId.value) {
+        // カメラの解像度設定
+        navigator.mediaDevices
+          .getUserMedia({
+            video: {
+              deviceId: selectedDeviceId.value,
+              width: { ideal: 1920 }, // 理想的な幅
+              height: { ideal: 1080 }, // 理想的な高さ
+              facingMode: 'environment', // 背面カメラを使用（モバイル用）
+            },
+          })
+          .then(() => {
+            startScanning();
+          })
+          .catch((err) => {
+            console.error('カメラ取得エラー:', err);
+          });
       }
-    };
-
-    const resetReader = () => {
-      parts.splice(0); // 部分データをクリア
-      currentCount.value = 0;
-      finalResult.value = null;
-      error.value = null;
-      startVideo(); // 再スタート
-    };
-
-    onMounted(() => {
-      startVideo();
     });
 
+    // クリーンアップ処理
     onBeforeUnmount(() => {
-      stopVideo();
+      codeReader.reset();
     });
 
     return {
       video,
-      error,
-      currentCount,
-      finalResult,
-      resetReader,
+      canvas,
+      devices,
+      selectedDeviceId,
+      resetScanner,
+      results,
+      carType,
     };
   },
 };
 </script>
 
-<style>
-.error {
-  color: red;
+<style scoped>
+video {
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  border: 1px solid #ccc;
+  margin-top: 10px;
 }
+
+canvas {
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+}
+
+h3 {
+  margin-top: 20px;
+}
+
+ul {
+  list-style-type: none;
+  padding: 0;
+}
+
+li {
+  margin: 5px 0;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.checkbox-container {
+  display: flex;
+  gap: 10px;
+  flex-direction: row;
+}
+
+.square {
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.square.checked {
+  background-color: #4caf50; /* チェックがついた場合の色 */
+}
+
+.camera-container {
+  position: relative;
+}
+
+.overlay-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
 </style>
