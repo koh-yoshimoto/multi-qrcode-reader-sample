@@ -5,7 +5,7 @@
         {{ device.label || `カメラデバイス ${device.deviceId}` }}
       </option>
     </select>
-    <button @click="resetScanner" style="margin-left: 2px;">リセット</button>
+    <button @click="resetScanner" style="margin-left: 2px;">適用</button>
 
     <div class="checkbox-container">
       <div 
