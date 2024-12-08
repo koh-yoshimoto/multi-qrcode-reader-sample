@@ -204,7 +204,7 @@ export default {
 
       if (selectedDeviceId.value) {
         // カメラの解像度設定
-        navigator.mediaDevices
+        const stream = await navigator.mediaDevices
           .getUserMedia({
             video: {
               deviceId: selectedDeviceId.value,
@@ -213,13 +213,15 @@ export default {
               facingMode: 'environment', // 背面カメラを使用（モバイル用）
             },
           })
-          .then(() => {
-            startScanning();
-          })
-          .catch((err) => {
-            console.error('カメラ取得エラー:', err);
+        const track = stream.getVideoTracks()[0];
+        const capabilities = track.getCapabilities();
+        if (capabilities.focusMode && capabilities.focusMode.includes("continuous")) {
+          track.applyConstraints({
+            advanced: [{ focusMode: "continuous" }],
           });
-      }
+        }
+        startScanning();
+      } 
     });
 
     // クリーンアップ処理
