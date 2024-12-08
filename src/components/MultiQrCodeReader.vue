@@ -149,7 +149,6 @@ export default {
         context.clearRect(0, 0, canvasElement.width, canvasElement.height);
       }, 1000);
 
-      console.log(result)
       const points = result.resultPoints; // QRコードの頂点情報を取得
 
       context.beginPath();
@@ -168,9 +167,9 @@ export default {
     };
 
     // リセット機能
-    const resetScanner = () => {
+    const resetScanner = async () => {
       // ビデオストリームの停止
-      const stream = video.value?.srcObject;
+      let stream = video.value?.srcObject;
         if (stream) {
           const tracks = stream.getTracks();
           tracks.forEach(track => track.stop());
@@ -181,20 +180,22 @@ export default {
       carType.value = "";
       scanning.value = false;
       
-      navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: {
           deviceId: selectedDeviceId.value,
-          width: { ideal: 1920 }, // 理想的な幅
-          height: { ideal: 1080 }, // 理想的な高さ
+          width: { ideal: 3840 }, // 理想的な幅
+          height: { ideal: 2080 }, // 理想的な高さ
           facingMode: 'environment', // 背面カメラを使用（モバイル用）
         },
-      })
-      .then(() => {
-       startScanning();
-      })
-      .catch((err) => {
-        console.error('カメラ取得エラー:', err);
       });
+      const track = stream.getVideoTracks()[0];
+      const capabilities = track.getCapabilities();
+      if (capabilities.focusMode && capabilities.focusMode.includes("continuous")) {
+        track.applyConstraints({
+          advanced: [{ focusMode: "continuous" }],
+        });
+      }
+      startScanning();
       console.log('スキャナーをリセットしました');
     };
 
@@ -208,8 +209,8 @@ export default {
           .getUserMedia({
             video: {
               deviceId: selectedDeviceId.value,
-              width: { ideal: 1920 }, // 理想的な幅
-              height: { ideal: 1080 }, // 理想的な高さ
+              width: { ideal: 3840 }, // 理想的な幅
+              height: { ideal: 2080 }, // 理想的な高さ
               facingMode: 'environment', // 背面カメラを使用（モバイル用）
             },
           })
