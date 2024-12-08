@@ -270,7 +270,6 @@ ul {
 li {
   margin: 5px 0;
   padding: 10px;
-  background-color: #f9f9f9;
   border: 1px solid #ddd;
   border-radius: 4px;
 }
